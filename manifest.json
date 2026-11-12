@@ -1,0 +1,9 @@
+{
+  "id": "floating-graph",
+  "name": "Floating Graph",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Grafo flutuante com profundidade e painel lateral com o conteúdo da nota.",
+  "author": "Vitor Teixeira",
+  "isDesktopOnly": false
+}
