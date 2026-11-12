@@ -1,11 +1,12 @@
-import { ItemView, MarkdownRenderer, Plugin, TFile, debounce } from "obsidian";
+import { ItemView, MarkdownRenderer, Notice, Plugin, Scope, TFile, ViewStateResult, debounce, parseFrontMatterAliases, setIcon } from "obsidian";
 import { forceSimulation, forceLink, forceManyBody, forceCollide, forceX, forceY, SimulationNodeDatum } from "d3-force";
-import { splitNote, hash } from "./parse";
+import { splitNote, hash, pairs, matches } from "./parse";
 
 const VIEW = "floating-graph";
+const HUES = 8;   // quantas classes .fg-hue-N existem no styles.css
 
 interface Node extends SimulationNodeDatum {
-  file: TFile; nb: Set<Node>; out: Node[]; z: number; phase: number; r: number;
+  file: TFile; nb: Set<Node>; out: Node[]; z: number; phase: number; r: number; idx: number; names: string[];
   x: number; y: number; sx: number; sy: number; sr: number;
 }
 
@@ -23,30 +24,70 @@ export default class FloatingGraphPlugin extends Plugin {
 }
 
 class FloatingGraphView extends ItemView {
-  nodes: Node[] = [];
+  nodes: Node[] = [];          // na ordem de navegação (pasta, depois nome)
   byPath = new Map<string, Node>();
   canvas!: HTMLCanvasElement;
   ctx!: CanvasRenderingContext2D;
   panel!: HTMLElement;
   content!: HTMLElement;
+  search!: HTMLInputElement;
+  count!: HTMLElement;
+  colorBtn!: HTMLElement;
   W = 0; H = 0; dpr = 1;
   cam = { x: 0, y: 0, k: 0.9 }; goal = { x: 0, y: 0, k: 0.9 };
   selected: Node | null = null; hovered: Node | null = null;
+  hits: Set<Node> | null = null;   // resultado da busca; null = sem busca
+  colors = false;
   frame = 0;
 
   getViewType() { return VIEW; }
   getDisplayText() { return "Floating graph"; }
   getIcon() { return "orbit"; }
 
+  // O Obsidian guarda isto no layout: ao reabrir, volta na mesma nota e com o mesmo modo de cor
+  getState() { return { ...super.getState(), file: this.selected?.file.path ?? null, colors: this.colors }; }
+  async setState(state: { file?: string | null; colors?: boolean }, result: ViewStateResult) {
+    this.setColors(!!state?.colors);
+    const n = state?.file ? this.byPath.get(state.file) : undefined;
+    if (n) await this.select(n);
+    await super.setState(state, result);
+  }
+
   async onOpen() {
     const root = this.contentEl;
     root.empty(); root.addClass("fg-root");
     this.canvas = root.createEl("canvas");
     this.ctx = this.canvas.getContext("2d")!;
+
+    const bar = root.createDiv("fg-search");
+    const searchBtn = bar.createEl("button", { cls: "fg-round", attr: { "aria-label": "Search notes" } });
+    setIcon(searchBtn, "search");
+    this.search = bar.createEl("input", { type: "search", attr: { placeholder: "Search notes…", "aria-label": "Search notes" } });
+    this.count = bar.createSpan("fg-count fg-mono");
+    searchBtn.onclick = () => this.openSearch();
+    this.registerDomEvent(this.search, "input", () => this.filter(this.search.value));
+    this.registerDomEvent(this.search, "keydown", (e) => {
+      if (e.key === "Enter") { const first = this.firstHit(); if (first) void this.select(first); }
+      if (e.key === "Escape") { e.preventDefault(); this.clearSearch(); }
+    });
+
+    this.colorBtn = root.createEl("button", { cls: "fg-round fg-color-toggle" });
+    setIcon(this.colorBtn, "palette");
+    this.colorBtn.onclick = () => { this.setColors(!this.colors); this.app.workspace.requestSaveLayout(); };
+    this.setColors(false);
+
     this.panel = root.createDiv("fg-panel");
     const close = this.panel.createEl("button", { cls: "fg-close", text: "✕", attr: { "aria-label": "Close" } });
     close.onclick = () => this.closePanel();
     this.content = this.panel.createDiv();
+
+    // Atalhos valem enquanto a aba do grafo está ativa
+    this.scope = new Scope(this.app.scope);
+    const typing = () => this.contentEl.doc.activeElement === this.search;
+    this.scope.register([], "/", () => { if (typing()) return true; this.openSearch(); return false; });
+    this.scope.register([], "Escape", () => { if (!typing()) this.closePanel(); return true; });
+    this.scope.register([], "ArrowLeft", () => (typing() || !this.step(-1)));
+    this.scope.register([], "ArrowRight", () => (typing() || !this.step(1)));
 
     const ro = new ResizeObserver(() => this.resize());
     ro.observe(root);
@@ -69,10 +110,13 @@ class FloatingGraphView extends ItemView {
   }
 
   build() {
-    const files = this.app.vault.getMarkdownFiles();
+    const files = this.app.vault.getMarkdownFiles()
+      .sort((a, b) => (a.parent?.path ?? "").localeCompare(b.parent?.path ?? "") || a.basename.localeCompare(b.basename));
     this.byPath = new Map();
-    this.nodes = files.map((file) => {
-      const n = { file, nb: new Set(), out: [], z: hash(file.path) * 2 - 1, phase: hash(file.path + "~") * Math.PI * 2 } as unknown as Node;
+    this.nodes = files.map((file, idx) => {
+      const aliases = parseFrontMatterAliases(this.app.metadataCache.getFileCache(file)?.frontmatter ?? null) ?? [];
+      const n = { file, idx, names: [file.basename, ...aliases], nb: new Set(), out: [],
+        z: hash(file.path) * 2 - 1, phase: hash(file.path + "~") * Math.PI * 2 } as unknown as Node;
       this.byPath.set(file.path, n);
       return n;
     });
@@ -96,7 +140,11 @@ class FloatingGraphView extends ItemView {
     const mx = this.nodes.reduce((s, n) => s + n.x, 0) / (this.nodes.length || 1);
     const my = this.nodes.reduce((s, n) => s + n.y, 0) / (this.nodes.length || 1);
     this.nodes.forEach((n) => { n.x -= mx; n.y -= my; });
-    if (this.selected) this.selected = this.byPath.get(this.selected.file.path) ?? null;
+    if (this.search?.value) this.filter(this.search.value);
+    // Os nós foram recriados: aponta para o nó novo sem refazer o painel (não perde a rolagem de quem lê)
+    const again = this.selected && this.byPath.get(this.selected.file.path);
+    if (again) { this.selected = again; this.goal.x = again.x; this.goal.y = again.y; }
+    else if (this.selected) this.closePanel();
   }
 
   persp(z: number) { return 1 / (1 - z * 0.38); }
@@ -110,6 +158,8 @@ class FloatingGraphView extends ItemView {
     const { ctx, cam, goal } = this, ease = 0.075;
     cam.x += (goal.x - cam.x) * ease; cam.y += (goal.y - cam.y) * ease; cam.k += (goal.k - cam.k) * ease;
     const dk = this.contentEl.doc.body.hasClass("theme-dark");
+    // No modo de cor da pasta, o fundo é colorido e o grafo vira branco
+    const tinted = this.colors && !!this.selected;
     const { cx, cy } = this.center();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.W, this.H);
@@ -120,7 +170,8 @@ class FloatingGraphView extends ItemView {
     }
     const active = this.hovered ?? this.selected;
     const order = [...this.nodes].sort((a, b) => a.z - b.z);
-    const ink = dk ? "240,240,236" : "20,20,20";
+    const ink = tinted ? "255,255,255" : dk ? "240,240,236" : "20,20,20";
+    const hidden = (n: Node) => this.hits !== null && !this.hits.has(n);
 
     // Linhas só do nó ativo, com pontinhos correndo nelas
     if (active) {
@@ -135,13 +186,20 @@ class FloatingGraphView extends ItemView {
         }
       }
     }
-    // Perto = escuro e grande; longe = claro e pequeno
+    // Perto = escuro e grande; longe = claro e pequeno (no modo de cor: perto = mais opaco)
     for (const n of order) {
       const on = active && (n === active || active.nb.has(n));
-      let g = 205 - ((n.z + 1) / 2) * 150;
-      if (active && !on) g += (232 - g) * 0.55;
-      if (dk) g = 265 - g;
-      ctx.fillStyle = n === this.selected ? `rgb(${ink})` : `rgb(${g},${g},${g})`;
+      const depth = (n.z + 1) / 2;
+      if (tinted) {
+        let a = 0.25 + depth * 0.6;
+        if ((active && !on) || hidden(n)) a *= 0.35;
+        ctx.fillStyle = n === this.selected ? `rgb(${ink})` : `rgba(${ink},${a})`;
+      } else {
+        let g = 205 - depth * 150;
+        if ((active && !on) || hidden(n)) g += (232 - g) * (hidden(n) ? 0.85 : 0.55);
+        if (dk) g = 265 - g;
+        ctx.fillStyle = n === this.selected ? `rgb(${ink})` : `rgb(${g},${g},${g})`;
+      }
       ctx.beginPath(); ctx.arc(n.sx, n.sy, n.sr, 0, 7); ctx.fill();
       if (n === this.selected || n === this.hovered) {
         ctx.strokeStyle = `rgb(${ink})`; ctx.lineWidth = 1;
@@ -152,8 +210,10 @@ class FloatingGraphView extends ItemView {
     const mono = getComputedStyle(this.contentEl.doc.body).getPropertyValue("--font-monospace").trim() || "monospace";
     for (const n of order) {
       const on = active && (n === active || active.nb.has(n));
-      if (!on && n.sr < 7) continue;
-      const a = on ? 0.95 : active ? 0.12 : 0.15 + ((n.z + 1) / 2) * 0.55;
+      const hit = this.hits?.has(n);
+      if (hidden(n) && !on) continue;
+      if (!on && !hit && n.sr < 7) continue;
+      const a = on || hit ? 0.95 : active ? 0.12 : 0.15 + ((n.z + 1) / 2) * 0.55;
       const size = Math.max(8, Math.min(16, 9 * Math.sqrt(cam.k * this.persp(n.z))));
       ctx.font = `${n === active ? 600 : 400} ${size}px ${mono}`;
       ctx.fillStyle = `rgba(${ink},${a})`;
@@ -194,38 +254,104 @@ class FloatingGraphView extends ItemView {
       e.preventDefault();
       this.goal.k = Math.max(0.2, Math.min(3, this.goal.k * Math.exp(-e.deltaY * 0.0012)));
     }, { passive: false });
-    this.registerDomEvent(this.contentEl, "keydown", (e) => { if (e.key === "Escape") this.closePanel(); });
+  }
+
+  // ---- Busca ----
+  openSearch() { this.contentEl.addClass("fg-searching"); this.search.focus(); this.search.select(); }
+  filter(query: string) {
+    this.hits = query.trim() ? new Set(this.nodes.filter((n) => matches(query, n.names))) : null;
+    this.count.setText(this.hits === null ? "" : this.hits.size ? `${this.hits.size} notes` : "no matches");
+  }
+  firstHit() {
+    if (!this.hits) return null;
+    const q = this.search.value.trim().toLowerCase();
+    const hits = this.nodes.filter((n) => this.hits!.has(n));
+    return hits.find((n) => n.names.some((x) => x.toLowerCase().startsWith(q))) ?? hits[0] ?? null;
+  }
+  clearSearch() {
+    this.search.value = ""; this.filter(""); this.search.blur(); this.contentEl.removeClass("fg-searching");
+  }
+
+  // ---- Cor da pasta ----
+  setColors(on: boolean) {
+    this.colors = on;
+    this.contentEl.toggleClass("fg-colored", on);
+    this.colorBtn.setAttr("aria-label", on ? "Switch to grayscale" : "Switch to folder colors");
+    this.tint();
+  }
+  tint() {
+    for (let i = 0; i < HUES; i++) this.contentEl.removeClass(`fg-hue-${i}`);
+    const folder = this.selected?.file.parent?.path;
+    if (folder !== undefined) this.contentEl.addClass(`fg-hue-${Math.floor(hash(folder) * HUES) % HUES}`);
+  }
+
+  // ---- Painel ----
+  step(dir: number) {
+    if (!this.selected || !this.nodes.length) return false;
+    void this.select(this.nodes[(this.selected.idx + dir + this.nodes.length) % this.nodes.length]);
+    return true;
   }
 
   closePanel() {
     this.selected = null; this.contentEl.removeClass("fg-open"); this.goal.k = 0.9;
+    this.tint();
+    this.app.workspace.requestSaveLayout();
   }
 
-  async select(n: Node) {
+  async select(target: Node) {
+    // Botões do painel podem guardar um nó de antes do último build(): usa sempre o atual
+    const n = this.byPath.get(target.file.path);
+    if (!n) return;
     this.selected = n;
     this.contentEl.addClass("fg-open");
+    this.tint();
     this.goal.k = 1.5 / this.persp(n.z); this.goal.x = n.x; this.goal.y = n.y;
-    const file = n.file, el = this.content;
+    const file = n.file, el = this.content, total = this.nodes.length;
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
-    const parts = splitNote(await this.app.vault.cachedRead(file));
+    const raw = await this.app.vault.cachedRead(file);
     if (this.selected !== n) return;   // outro clique chegou enquanto lia o arquivo
+    const parts = splitNote(raw);
+    this.app.workspace.requestSaveLayout();
     el.empty();
+
     const kicker = el.createDiv("fg-kicker fg-mono");
     kicker.createSpan({ text: file.parent?.isRoot() ? "/" : file.parent?.name ?? "" });
-    kicker.createEl("b", { text: `${n.nb.size}` }); kicker.createEl("small", { text: "links" });
+    kicker.createEl("b", { text: `${n.idx + 1}` }); kicker.createEl("small", { text: `/ ${total}` });
     // Diretrizes: nada de <h1>/<h2> (estilo inconsistente entre plugins); o papel de título fica no ARIA
     el.createDiv({ cls: "fg-title", text: file.basename, attr: { role: "heading", "aria-level": "1" } });
+    if (n.names.length > 1) el.createDiv({ cls: "fg-aliases", text: n.names.slice(1).join(" · ") });
     if (fm.description) el.createEl("p", { cls: "fg-desc", text: String(fm.description) });
     const tags = [fm.tags ?? []].flat().filter(Boolean);
     if (tags.length) el.createDiv("fg-tags").setText(tags.map((t: string) => "#" + t).join("  "));
-    const open = el.createEl("button", { cls: "fg-chip fg-open-note", text: "Open note ↗" });
-    open.onclick = () => this.app.workspace.getLeaf("split").openFile(file);
+
+    const actions = el.createDiv("fg-chips fg-actions");
+    actions.createEl("button", { cls: "fg-chip", text: "Open note ↗" }).onclick = () => void this.app.workspace.getLeaf("split").openFile(file);
+    actions.createEl("button", { cls: "fg-chip", text: "Copy markdown" }).onclick = () => void this.copy(raw, "Markdown copied");
+    const link = `obsidian://open?vault=${encodeURIComponent(this.app.vault.getName())}&file=${encodeURIComponent(file.path)}`;
+    actions.createEl("button", { cls: "fg-chip", text: "Copy link" }).onclick = () => void this.copy(link, "Link copied");
 
     const section = (label: string) => { const s = el.createEl("section"); s.createDiv({ cls: "fg-heading fg-mono", text: label, attr: { role: "heading", "aria-level": "2" } }); return s; };
     const md = (text: string, into: HTMLElement) => MarkdownRenderer.render(this.app, text, into, file.path, this);
-    if (parts.quotes.length) {
+
+    const talks = pairs(parts.quotes);
+    if (talks.length) {
       const s = section("Heard in the wild");
-      parts.quotes.forEach((q, i) => void md(q, s.createDiv(`fg-bubble${i % 2 ? " me" : ""}`)));
+      const slide = s.createDiv();
+      let i = 0;
+      const show = () => {
+        slide.empty();
+        talks[i].forEach((q, j) => void md(q, slide.createDiv(`fg-bubble${j % 2 ? " me" : ""}`)));
+      };
+      if (talks.length > 1) {
+        const nav = s.createDiv("fg-carousel fg-mono");
+        const prev = nav.createEl("button", { cls: "fg-chip", text: "←", attr: { "aria-label": "Previous example" } });
+        const pos = nav.createSpan();
+        const next = nav.createEl("button", { cls: "fg-chip", text: "→", attr: { "aria-label": "Next example" } });
+        const go = (d: number) => { i = (i + d + talks.length) % talks.length; pos.setText(`${i + 1} / ${talks.length}`); show(); };
+        prev.onclick = () => go(-1); next.onclick = () => go(1);
+        pos.setText(`1 / ${talks.length}`);
+      }
+      show();
     }
     if (parts.avoid.length) {
       const s = section("Avoid");
@@ -235,13 +361,39 @@ class FloatingGraphView extends ItemView {
       const chips = section("Connects to").createDiv("fg-chips");
       for (const b of n.out) chips.createEl("button", { cls: "fg-chip", text: b.file.basename }).onclick = () => void this.select(b);
     }
-    await md(parts.body, section(parts.quotes.length ? "Definition" : "Note").createDiv("fg-body"));
+    const defSection = section(parts.quotes.length ? "Full definition" : "Note");
+    const body = defSection.createDiv("fg-body fg-collapsed");
+    await md(parts.body, body);
+    if (this.selected !== n) return;
+    // "Read more" só quando o texto passa do limite recolhido
+    if (body.scrollHeight > body.clientHeight + 4) {
+      const more = defSection.createEl("button", { cls: "fg-chip fg-more", text: "Read more" });
+      more.onclick = () => {
+        body.toggleClass("fg-collapsed", !body.hasClass("fg-collapsed"));
+        more.setText(body.hasClass("fg-collapsed") ? "Read more" : "Show less");
+      };
+    } else body.removeClass("fg-collapsed");
+
     // Links da nota renderizada navegam pelo grafo em vez de abrir a nota
     el.querySelectorAll<HTMLAnchorElement>("a.internal-link").forEach((a) => a.addEventListener("click", (e) => {
       const target = this.app.metadataCache.getFirstLinkpathDest(decodeURIComponent(a.getAttribute("data-href") ?? ""), file.path);
       const b = target && this.byPath.get(target.path);
       if (b) { e.preventDefault(); e.stopPropagation(); void this.select(b); }
     }, true));
+
+    const foot = el.createDiv("fg-foot");
+    const prev = this.nodes[(n.idx - 1 + total) % total], next = this.nodes[(n.idx + 1) % total];
+    const nav = (label: string, to: Node, cls: string) => {
+      const b = foot.createEl("button", { cls: `fg-step ${cls}`, attr: { "aria-label": `${label}: ${to.file.basename}` } });
+      b.createDiv({ cls: "fg-mono", text: label }); b.createDiv({ text: to.file.basename });
+      b.onclick = () => void this.select(to);
+    };
+    nav("Prev", prev, "fg-prev"); nav("Next", next, "fg-next");
     this.panel.scrollTop = 0;
+  }
+
+  async copy(text: string, done: string) {
+    try { await navigator.clipboard.writeText(text); new Notice(done); }
+    catch { new Notice("Could not copy"); }
   }
 }

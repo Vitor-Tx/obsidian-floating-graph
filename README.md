@@ -4,8 +4,11 @@ An alternative graph view for Obsidian, inspired by the visualization Matt Pococ
 
 - Notes are grey circles with depth: closer ones are larger and darker, and all of them drift slowly.
 - Links stay hidden until a note is active, then appear with small dots travelling along them.
-- Click a note and the camera glides to it while a side panel slides in with the folder, title, `description` and `tags` from the frontmatter, its connections, and the rendered note. Links inside the panel move around the graph.
-- Notes written like the dictionary's entries (`_Usage:_` and `_Avoid:_` sections) get chat bubbles and an "Avoid" section.
+- Click a note and the camera glides to it while a side panel slides in with the folder, its position ("12 / 80"), title, aliases, `description` and `tags` from the frontmatter, its connections, and the rendered note (collapsed with "Read more"). Links inside the panel move around the graph.
+- Notes written like the dictionary's entries (`_Usage:_` and `_Avoid:_` sections) get chat bubbles, in a carousel when there is more than one exchange, and an "Avoid" section.
+- Search filters the graph live by title or alias.
+- Folder colors: the whole view takes the color of the open note's folder.
+- The open note and the color mode are saved with your workspace.
 
 ## Usage
 
@@ -17,7 +20,11 @@ Click the orbit icon in the left ribbon, or run **Floating Graph: Open graph** f
 | Click a note | opens the side panel |
 | Click the background or press `Esc` | closes the panel |
 | Drag / scroll | pan / zoom |
+| `/` or the search icon | search; `Enter` opens the first match, `Esc` clears |
+| `←` / `→` or **Prev / Next** | previous / next note (by folder, then name) |
+| Palette icon (bottom right) | switch between grayscale and folder colors |
 | **Open note ↗** | opens the note in a split |
+| **Copy markdown** / **Copy link** | copies the note's Markdown or an `obsidian://` link to it |
 
 ## Manual install
 

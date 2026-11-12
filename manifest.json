@@ -1,8 +1,8 @@
 {
   "id": "floating-graph",
   "name": "Floating Graph",
-  "version": "0.1.3",
-  "minAppVersion": "1.5.0",
+  "version": "0.2.0",
+  "minAppVersion": "1.5.7",
   "description": "Explore your vault as a floating, depth-shaded graph with a side panel that previews each note.",
   "author": "Vitor Teixeira",
   "isDesktopOnly": false,

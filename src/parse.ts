@@ -13,6 +13,19 @@ export function splitNote(text: string): NoteParts {
   };
 }
 
+// Falas do "Heard in the wild" em conversas de pergunta + resposta (um slide do carrossel cada)
+export function pairs<T>(items: T[]): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += 2) out.push(items.slice(i, i + 2));
+  return out;
+}
+
+// Busca: o texto aparece no título ou num alias, sem diferenciar maiúsculas
+export function matches(query: string, names: string[]): boolean {
+  const q = query.trim().toLowerCase();
+  return !q || names.some((n) => n.toLowerCase().includes(q));
+}
+
 // Hash estável do nome: a mesma nota fica sempre na mesma profundidade e fase da flutuação.
 export function hash(s: string): number {
   let h = 2166136261;
