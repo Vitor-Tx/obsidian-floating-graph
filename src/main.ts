@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, Notice, Plugin, Scope, TFile, ViewStateResult, debounce, parseFrontMatterAliases, setIcon } from "obsidian";
+import { App, ItemView, MarkdownRenderer, Notice, Plugin, PluginSettingTab, Scope, Setting, SettingDefinitionItem, TFile, ViewStateResult, WorkspaceLeaf, debounce, parseFrontMatterAliases, setIcon } from "obsidian";
 import { forceSimulation, forceLink, forceManyBody, forceCollide, forceX, forceY, SimulationNodeDatum } from "d3-force";
 import { splitNote, hash, pairs, matches } from "./parse";
 
@@ -10,16 +10,56 @@ interface Node extends SimulationNodeDatum {
   x: number; y: number; sx: number; sy: number; sr: number;
 }
 
+interface Settings { slashSearch: boolean }
+const DEFAULTS: Settings = { slashSearch: true };
+
 export default class FloatingGraphPlugin extends Plugin {
+  settings: Settings = { ...DEFAULTS };
+
   async onload() {
-    this.registerView(VIEW, (leaf) => new FloatingGraphView(leaf));
+    this.settings = { ...DEFAULTS, ...((await this.loadData()) as Partial<Settings> | null) };
+    this.registerView(VIEW, (leaf) => new FloatingGraphView(leaf, this));
     this.addRibbonIcon("orbit", "Open floating graph", () => this.open());
     this.addCommand({ id: "open", name: "Open graph", callback: () => this.open() });
+    // Sem atalho padrão (diretrizes): o usuário escolhe em Settings → Hotkeys, que já avisa conflitos
+    this.addCommand({
+      id: "search", name: "Search notes in graph",
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(FloatingGraphView);
+        if (!view) return false;
+        if (!checking) view.openSearch();
+        return true;
+      },
+    });
+    this.addSettingTab(new FloatingGraphSettings(this.app, this));
   }
   async open() {
     const leaf = this.app.workspace.getLeavesOfType(VIEW)[0] ?? this.app.workspace.getLeaf("tab");
     // active: true já traz a aba para a frente (revealLeaf só devolve Promise a partir da 1.7.2)
     await leaf.setViewState({ type: VIEW, active: true });
+  }
+}
+
+const SLASH_NAME = "Press / to search";
+const SLASH_DESC = "While the graph tab is active, / opens the search. Turn this off if you use / for something else. "
+  + "To use another key, set a hotkey for \"Search notes in graph\" in Settings → Hotkeys.";
+
+class FloatingGraphSettings extends PluginSettingTab {
+  constructor(app: App, private plugin: FloatingGraphPlugin) { super(app, plugin); }
+  // Obsidian 1.13+: deixa a opção aparecer na busca das configurações
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [{ name: SLASH_NAME, desc: SLASH_DESC, aliases: ["hotkey", "shortcut", "slash"], control: { type: "toggle", key: "slashSearch", defaultValue: true } }];
+  }
+  // Versões anteriores à 1.13 não conhecem as definições acima e usam esta tela
+  display() {
+    this.containerEl.empty();
+    new Setting(this.containerEl)
+      .setName(SLASH_NAME)
+      .setDesc(SLASH_DESC)
+      .addToggle((t) => t.setValue(this.plugin.settings.slashSearch).onChange(async (v) => {
+        this.plugin.settings.slashSearch = v;
+        await this.plugin.saveData(this.plugin.settings);
+      }));
   }
 }
 
@@ -39,6 +79,8 @@ class FloatingGraphView extends ItemView {
   hits: Set<Node> | null = null;   // resultado da busca; null = sem busca
   colors = false;
   frame = 0;
+
+  constructor(leaf: WorkspaceLeaf, private plugin: FloatingGraphPlugin) { super(leaf); }
 
   getViewType() { return VIEW; }
   getDisplayText() { return "Floating graph"; }
@@ -84,7 +126,10 @@ class FloatingGraphView extends ItemView {
     // Atalhos valem enquanto a aba do grafo está ativa
     this.scope = new Scope(this.app.scope);
     const typing = () => this.contentEl.doc.activeElement === this.search;
-    this.scope.register([], "/", () => { if (typing()) return true; this.openSearch(); return false; });
+    this.scope.register([], "/", () => {
+      if (typing() || !this.plugin.settings.slashSearch) return true;   // deixa o "/" seguir para o Obsidian
+      this.openSearch(); return false;
+    });
     this.scope.register([], "Escape", () => { if (!typing()) this.closePanel(); return true; });
     this.scope.register([], "ArrowLeft", () => (typing() || !this.step(-1)));
     this.scope.register([], "ArrowRight", () => (typing() || !this.step(1)));

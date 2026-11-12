@@ -20,7 +20,7 @@ Click the orbit icon in the left ribbon, or run **Floating Graph: Open graph** f
 | Click a note | opens the side panel |
 | Click the background or press `Esc` | closes the panel |
 | Drag / scroll | pan / zoom |
-| `/` or the search icon | search; `Enter` opens the first match, `Esc` clears |
+| `/` or the search icon | search; `Enter` opens the first match, `Esc` clears. `/` only works while the graph tab is active and can be turned off in the plugin settings; to use another key, set a hotkey for **Search notes in graph** in Settings → Hotkeys |
 | `←` / `→` or **Prev / Next** | previous / next note (by folder, then name) |
 | Palette icon (bottom right) | switch between grayscale and folder colors |
 | **Open note ↗** | opens the note in a split |
