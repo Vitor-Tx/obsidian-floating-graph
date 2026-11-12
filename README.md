@@ -36,4 +36,8 @@ The layout is computed with [d3-force](https://github.com/d3/d3-force) and drawn
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE).
+
+The bundled `main.js` includes [d3-force](https://github.com/d3/d3-force), [d3-quadtree](https://github.com/d3/d3-quadtree), [d3-dispatch](https://github.com/d3/d3-dispatch) and [d3-timer](https://github.com/d3/d3-timer) by Mike Bostock, under the ISC License. Their license notice is kept at the top of `main.js`.
+
+This plugin makes no network requests and only reads files inside your vault.
