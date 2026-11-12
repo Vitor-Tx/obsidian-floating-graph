@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, Plugin, TFile, WorkspaceLeaf, debounce } from "obsidian";
+import { ItemView, MarkdownRenderer, Plugin, TFile, debounce } from "obsidian";
 import { forceSimulation, forceLink, forceManyBody, forceCollide, forceX, forceY, SimulationNodeDatum } from "d3-force";
 import { splitNote, hash } from "./parse";
 
@@ -17,8 +17,8 @@ export default class FloatingGraphPlugin extends Plugin {
   }
   async open() {
     const leaf = this.app.workspace.getLeavesOfType(VIEW)[0] ?? this.app.workspace.getLeaf("tab");
+    // active: true já traz a aba para a frente (revealLeaf só devolve Promise a partir da 1.7.2)
     await leaf.setViewState({ type: VIEW, active: true });
-    this.app.workspace.revealLeaf(leaf);
   }
 }
 
@@ -57,10 +57,10 @@ class FloatingGraphView extends ItemView {
     this.registerEvent(this.app.metadataCache.on("resolved", debounce(() => this.build(), 1500, true)));
     this.bindInput();
     // Aba em segundo plano (escondida) não desenha, para não gastar CPU à toa
-    const loop = (t: number) => { if (this.contentEl.isShown()) this.draw(t); this.frame = requestAnimationFrame(loop); };
-    this.frame = requestAnimationFrame(loop);
+    const loop = (t: number) => { if (this.contentEl.isShown()) this.draw(t); this.frame = window.requestAnimationFrame(loop); };
+    this.frame = window.requestAnimationFrame(loop);
   }
-  async onClose() { cancelAnimationFrame(this.frame); }
+  async onClose() { window.cancelAnimationFrame(this.frame); }
 
   resize() {
     this.dpr = window.devicePixelRatio || 1;
@@ -109,7 +109,7 @@ class FloatingGraphView extends ItemView {
   draw(time: number) {
     const { ctx, cam, goal } = this, ease = 0.075;
     cam.x += (goal.x - cam.x) * ease; cam.y += (goal.y - cam.y) * ease; cam.k += (goal.k - cam.k) * ease;
-    const dk = document.body.hasClass("theme-dark");
+    const dk = this.contentEl.doc.body.hasClass("theme-dark");
     const { cx, cy } = this.center();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.W, this.H);
@@ -149,7 +149,7 @@ class FloatingGraphView extends ItemView {
       }
     }
     ctx.textAlign = "center";
-    const mono = getComputedStyle(document.body).getPropertyValue("--font-monospace").trim() || "monospace";
+    const mono = getComputedStyle(this.contentEl.doc.body).getPropertyValue("--font-monospace").trim() || "monospace";
     for (const n of order) {
       const on = active && (n === active || active.nb.has(n));
       if (!on && n.sr < 7) continue;
@@ -186,7 +186,8 @@ class FloatingGraphView extends ItemView {
       const moved = drag?.moved; drag = null;
       if (moved) return;
       const { x, y } = local(e), n = this.pick(x, y);
-      n ? this.select(n) : this.closePanel();
+      if (n) void this.select(n);
+      else this.closePanel();
     });
     this.registerDomEvent(c, "pointerleave", () => (this.hovered = null));
     this.registerDomEvent(c, "wheel", (e) => {
@@ -224,22 +225,22 @@ class FloatingGraphView extends ItemView {
     const md = (text: string, into: HTMLElement) => MarkdownRenderer.render(this.app, text, into, file.path, this);
     if (parts.quotes.length) {
       const s = section("Heard in the wild");
-      parts.quotes.forEach((q, i) => md(q, s.createDiv(`fg-bubble${i % 2 ? " me" : ""}`)));
+      parts.quotes.forEach((q, i) => void md(q, s.createDiv(`fg-bubble${i % 2 ? " me" : ""}`)));
     }
     if (parts.avoid.length) {
       const s = section("Avoid");
-      parts.avoid.forEach((a) => md(a, s.createDiv("fg-avoid")));
+      parts.avoid.forEach((a) => void md(a, s.createDiv("fg-avoid")));
     }
     if (n.out.length) {
       const chips = section("Connects to").createDiv("fg-chips");
-      for (const b of n.out) chips.createEl("button", { cls: "fg-chip", text: b.file.basename }).onclick = () => this.select(b);
+      for (const b of n.out) chips.createEl("button", { cls: "fg-chip", text: b.file.basename }).onclick = () => void this.select(b);
     }
     await md(parts.body, section(parts.quotes.length ? "Definition" : "Note").createDiv("fg-body"));
     // Links da nota renderizada navegam pelo grafo em vez de abrir a nota
     el.querySelectorAll<HTMLAnchorElement>("a.internal-link").forEach((a) => a.addEventListener("click", (e) => {
       const target = this.app.metadataCache.getFirstLinkpathDest(decodeURIComponent(a.getAttribute("data-href") ?? ""), file.path);
       const b = target && this.byPath.get(target.path);
-      if (b) { e.preventDefault(); e.stopPropagation(); this.select(b); }
+      if (b) { e.preventDefault(); e.stopPropagation(); void this.select(b); }
     }, true));
     this.panel.scrollTop = 0;
   }
