@@ -3,7 +3,8 @@
   "name": "Floating Graph",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Grafo flutuante com profundidade e painel lateral com o conteúdo da nota.",
+  "description": "Explore your vault as a floating, depth-shaded graph with a side panel that previews each note.",
   "author": "Vitor Teixeira",
-  "isDesktopOnly": false
+  "isDesktopOnly": false,
+  "authorUrl": "https://github.com/Vitor-Tx"
 }

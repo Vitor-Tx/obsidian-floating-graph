@@ -12,8 +12,8 @@ interface Node extends SimulationNodeDatum {
 export default class FloatingGraphPlugin extends Plugin {
   async onload() {
     this.registerView(VIEW, (leaf) => new FloatingGraphView(leaf));
-    this.addRibbonIcon("orbit", "Abrir floating graph", () => this.open());
-    this.addCommand({ id: "open", name: "Abrir floating graph", callback: () => this.open() });
+    this.addRibbonIcon("orbit", "Open floating graph", () => this.open());
+    this.addCommand({ id: "open", name: "Open graph", callback: () => this.open() });
   }
   async open() {
     const leaf = this.app.workspace.getLeavesOfType(VIEW)[0] ?? this.app.workspace.getLeaf("tab");
@@ -44,7 +44,7 @@ class FloatingGraphView extends ItemView {
     this.canvas = root.createEl("canvas");
     this.ctx = this.canvas.getContext("2d")!;
     this.panel = root.createDiv("fg-panel");
-    const close = this.panel.createEl("button", { cls: "fg-close", text: "✕", attr: { "aria-label": "Fechar" } });
+    const close = this.panel.createEl("button", { cls: "fg-close", text: "✕", attr: { "aria-label": "Close" } });
     close.onclick = () => this.closePanel();
     this.content = this.panel.createDiv();
 
@@ -178,7 +178,7 @@ class FloatingGraphView extends ItemView {
       } else {
         const { x, y } = local(e);
         this.hovered = this.pick(x, y);
-        c.style.cursor = this.hovered ? "pointer" : "grab";
+        c.toggleClass("fg-hover", !!this.hovered);
       }
     });
     this.registerDomEvent(c, "pointerup", (e) => {
@@ -215,7 +215,7 @@ class FloatingGraphView extends ItemView {
     if (fm.description) el.createEl("p", { cls: "fg-desc", text: String(fm.description) });
     const tags = [fm.tags ?? []].flat().filter(Boolean);
     if (tags.length) el.createDiv("fg-tags").setText(tags.map((t: string) => "#" + t).join("  "));
-    const open = el.createEl("button", { cls: "fg-chip fg-open-note", text: "Abrir nota ↗" });
+    const open = el.createEl("button", { cls: "fg-chip fg-open-note", text: "Open note ↗" });
     open.onclick = () => this.app.workspace.getLeaf("split").openFile(file);
 
     const section = (label: string) => { const s = el.createEl("section"); s.createEl("h2", { cls: "fg-mono", text: label }); return s; };
