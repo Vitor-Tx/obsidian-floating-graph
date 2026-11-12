@@ -29,3 +29,7 @@ Para abrir: ícone de órbita na barra lateral, ou `Ctrl+P` → "Abrir floating 
 | `npm run install-vaults` | build + cópia para os vaults locais |
 
 O layout é calculado com [d3-force](https://github.com/d3/d3-force) e desenhado num `<canvas>`.
+
+## Licença
+
+[MIT](LICENSE)
