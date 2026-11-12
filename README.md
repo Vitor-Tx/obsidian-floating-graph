@@ -3,7 +3,7 @@
 An alternative graph view for Obsidian, inspired by the visualization Matt Pocock uses for his [AI Coding Dictionary](https://github.com/mattpocock/dictionary-of-ai-coding).
 
 - Notes are grey circles with depth: closer ones are larger and darker, and all of them drift slowly.
-- Links stay hidden until a note is active, then appear with small dots travelling along them.
+- Links stay hidden until a note is active, then appear with small dots travelling along them. Turn on **Show all links** in the plugin settings to see every link at rest, like Obsidian's graph view; hovering or opening a note still shows only its own links.
 - Click a note and the camera glides to it while a side panel slides in with the folder, its position ("12 / 80"), title, aliases, `description` and `tags` from the frontmatter, its connections, and the rendered note (collapsed with "Read more"). Links inside the panel move around the graph.
 - Notes written like the dictionary's entries (`_Usage:_` and `_Avoid:_` sections) get chat bubbles, in a carousel when there is more than one exchange, and an "Avoid" section.
 - Search filters the graph live by title or alias.

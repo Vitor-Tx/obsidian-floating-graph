@@ -10,8 +10,8 @@ interface Node extends SimulationNodeDatum {
   x: number; y: number; sx: number; sy: number; sr: number;
 }
 
-interface Settings { slashSearch: boolean }
-const DEFAULTS: Settings = { slashSearch: true };
+interface Settings { slashSearch: boolean; showAllLinks: boolean }
+const DEFAULTS: Settings = { slashSearch: true, showAllLinks: false };
 
 export default class FloatingGraphPlugin extends Plugin {
   settings: Settings = { ...DEFAULTS };
@@ -40,32 +40,38 @@ export default class FloatingGraphPlugin extends Plugin {
   }
 }
 
-const SLASH_NAME = "Press / to search";
-const SLASH_DESC = "While the graph tab is active, / opens the search. Turn this off if you use / for something else. "
-  + "To use another key, set a hotkey for \"Search notes in graph\" in Settings → Hotkeys.";
+// Cada opção aparece uma vez aqui; a tela antiga e a busca do Obsidian 1.13+ leem desta lista
+const TOGGLES: { key: keyof Settings; name: string; desc: string; aliases: string[] }[] = [
+  { key: "slashSearch", name: "Press / to search", aliases: ["hotkey", "shortcut", "slash"],
+    desc: "While the graph tab is active, / opens the search. Turn this off if you use / for something else. "
+      + "To use another key, set a hotkey for \"Search notes in graph\" in Settings → Hotkeys." },
+  { key: "showAllLinks", name: "Show all links", aliases: ["edges", "lines", "connections"],
+    desc: "Draw every link between notes, like Obsidian's graph view. Hovering or opening a note still shows only that note's links." },
+];
 
 class FloatingGraphSettings extends PluginSettingTab {
   constructor(app: App, private plugin: FloatingGraphPlugin) { super(app, plugin); }
-  // Obsidian 1.13+: deixa a opção aparecer na busca das configurações
+  // Obsidian 1.13+: deixa as opções aparecerem na busca das configurações
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [{ name: SLASH_NAME, desc: SLASH_DESC, aliases: ["hotkey", "shortcut", "slash"], control: { type: "toggle", key: "slashSearch", defaultValue: true } }];
+    return TOGGLES.map((t) => ({ name: t.name, desc: t.desc, aliases: t.aliases, control: { type: "toggle", key: t.key, defaultValue: DEFAULTS[t.key] } }));
   }
   // Versões anteriores à 1.13 não conhecem as definições acima e usam esta tela
   display() {
     this.containerEl.empty();
-    new Setting(this.containerEl)
-      .setName(SLASH_NAME)
-      .setDesc(SLASH_DESC)
-      .addToggle((t) => t.setValue(this.plugin.settings.slashSearch).onChange(async (v) => {
-        this.plugin.settings.slashSearch = v;
-        await this.plugin.saveData(this.plugin.settings);
-      }));
+    for (const t of TOGGLES) {
+      new Setting(this.containerEl).setName(t.name).setDesc(t.desc)
+        .addToggle((c) => c.setValue(this.plugin.settings[t.key]).onChange(async (v) => {
+          this.plugin.settings[t.key] = v;
+          await this.plugin.saveData(this.plugin.settings);
+        }));
+    }
   }
 }
 
 class FloatingGraphView extends ItemView {
   nodes: Node[] = [];          // na ordem de navegação (pasta, depois nome)
   byPath = new Map<string, Node>();
+  links: { source: Node; target: Node }[] = [];
   canvas!: HTMLCanvasElement;
   ctx!: CanvasRenderingContext2D;
   panel!: HTMLElement;
@@ -174,6 +180,7 @@ class FloatingGraphView extends ItemView {
         a.out.push(b); a.nb.add(b); b.nb.add(a); links.push({ source: a, target: b });
       }
     }
+    this.links = links;
     this.nodes.forEach((n) => (n.r = 9 + Math.sqrt(n.nb.size) * 2.2));
     // Layout calculado de uma vez antes de desenhar, para não "tremer" ao abrir
     forceSimulation(this.nodes)
@@ -218,6 +225,16 @@ class FloatingGraphView extends ItemView {
     const ink = tinted ? "255,255,255" : dk ? "240,240,236" : "20,20,20";
     const hidden = (n: Node) => this.hits !== null && !this.hits.has(n);
 
+    // Opção "Show all links": sem nota ativa, todas as ligações bem claras (um traço só, sem pontinhos)
+    if (!active && this.plugin.settings.showAllLinks) {
+      ctx.lineWidth = 0.6; ctx.strokeStyle = `rgba(${ink},.14)`;
+      ctx.beginPath();
+      for (const { source: a, target: b } of this.links) {
+        if (hidden(a) || hidden(b)) continue;
+        ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy);
+      }
+      ctx.stroke();
+    }
     // Linhas só do nó ativo, com pontinhos correndo nelas
     if (active) {
       ctx.lineWidth = 0.7;
