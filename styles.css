@@ -11,11 +11,11 @@
 
 .fg-kicker { display: flex; gap: 8px; align-items: baseline; padding: 6px 44px 12px 0; border-bottom: 1px solid var(--background-modifier-border); }
 .fg-kicker b { margin-left: auto; color: var(--text-normal); }
-.fg-panel h1 { font-size: 34px; line-height: 1.02; letter-spacing: -.03em; font-weight: 700; margin: 22px 0 12px; }
+.fg-title { font-size: 34px; line-height: 1.02; letter-spacing: -.03em; font-weight: 700; margin: 22px 0 12px; }
 .fg-desc { font-size: 15px; line-height: 1.45; margin: 0 0 14px; }
 .fg-tags { font-size: 12px; color: var(--text-accent); margin-bottom: 14px; }
 .fg-panel section { margin-top: 22px; }
-.fg-panel h2 { margin: 0 0 12px; padding-top: 14px; border-top: 1px solid var(--background-modifier-border); }
+.fg-heading { margin: 0 0 12px; padding-top: 14px; border-top: 1px solid var(--background-modifier-border); }
 .fg-panel p { margin: 0 0 .6em; }
 
 .fg-bubble { padding: 9px 13px; border-radius: 12px; margin: 0 56px 8px 0; font-size: 13px; line-height: 1.45;

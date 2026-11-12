@@ -56,7 +56,8 @@ class FloatingGraphView extends ItemView {
     // Nota nova, apagada ou link mudou: refaz o grafo (o layout muda junto)
     this.registerEvent(this.app.metadataCache.on("resolved", debounce(() => this.build(), 1500, true)));
     this.bindInput();
-    const loop = (t: number) => { this.draw(t); this.frame = requestAnimationFrame(loop); };
+    // Aba em segundo plano (escondida) não desenha, para não gastar CPU à toa
+    const loop = (t: number) => { if (this.contentEl.isShown()) this.draw(t); this.frame = requestAnimationFrame(loop); };
     this.frame = requestAnimationFrame(loop);
   }
   async onClose() { cancelAnimationFrame(this.frame); }
@@ -211,14 +212,15 @@ class FloatingGraphView extends ItemView {
     const kicker = el.createDiv("fg-kicker fg-mono");
     kicker.createSpan({ text: file.parent?.isRoot() ? "/" : file.parent?.name ?? "" });
     kicker.createEl("b", { text: `${n.nb.size}` }); kicker.createEl("small", { text: "links" });
-    el.createEl("h1", { text: file.basename });
+    // Diretrizes: nada de <h1>/<h2> (estilo inconsistente entre plugins); o papel de título fica no ARIA
+    el.createDiv({ cls: "fg-title", text: file.basename, attr: { role: "heading", "aria-level": "1" } });
     if (fm.description) el.createEl("p", { cls: "fg-desc", text: String(fm.description) });
     const tags = [fm.tags ?? []].flat().filter(Boolean);
     if (tags.length) el.createDiv("fg-tags").setText(tags.map((t: string) => "#" + t).join("  "));
     const open = el.createEl("button", { cls: "fg-chip fg-open-note", text: "Open note ↗" });
     open.onclick = () => this.app.workspace.getLeaf("split").openFile(file);
 
-    const section = (label: string) => { const s = el.createEl("section"); s.createEl("h2", { cls: "fg-mono", text: label }); return s; };
+    const section = (label: string) => { const s = el.createEl("section"); s.createDiv({ cls: "fg-heading fg-mono", text: label, attr: { role: "heading", "aria-level": "2" } }); return s; };
     const md = (text: string, into: HTMLElement) => MarkdownRenderer.render(this.app, text, into, file.path, this);
     if (parts.quotes.length) {
       const s = section("Heard in the wild");
